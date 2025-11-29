@@ -29,6 +29,7 @@ def all_products(request: HttpRequest) -> HttpResponse:
     Returns:
         JsonResponse: A JSON response containing paginated and filtered products.
     """
+
     response = {"status": "error", "message": "", "data": None}
     try:
         if request.method == "OPTIONS":
@@ -50,10 +51,12 @@ def all_products(request: HttpRequest) -> HttpResponse:
             # Build the products list
             products_list = [
                 {
+                    "id": product.id,
                     "name": product.name,
                     "description": product.description,
                     "category": product.get_category_display(),
                     "price": str(product.price),
+                    "sku": product.sku,
                     "stock": product.stock_quantity,
                 }
                 for product in products_page
@@ -75,7 +78,7 @@ def all_products(request: HttpRequest) -> HttpResponse:
             body = json.loads(request.body)
 
             # Validate the required data
-            required_fields = ["name", "description", "category", "price", "stock"]
+            required_fields = ["name", "description", "category", "price", "stock", "sku"]
             for field in required_fields:
                 if field not in body:
                     response["message"] = f"El campo '{field}' es obligatorio."
@@ -88,6 +91,7 @@ def all_products(request: HttpRequest) -> HttpResponse:
                 category=body["category"],
                 price=body["price"],
                 stock_quantity=body["stock"],
+                sku=body["sku"],
             )
 
             response["status"] = "success"
@@ -121,20 +125,21 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
     try:
         if request.method == "OPTIONS":
             response["status"] = "success"
-            return JsonResponse(response, status=200)
 
         elif request.method == "GET":
             product = Product.objects.get(id=product_id)
             product_data = {
+                "id": product.id,
                 "name": product.name,
                 "description": product.description,
                 "category": product.get_category_display(),
                 "price": str(product.price),
                 "stock": product.stock_quantity,
+                "sku": product.sku,
             }
             response["status"] = "success"
             response["data"] = product_data
-            return JsonResponse(response, status=200)
+
         elif request.method == "PUT":
             body = json.loads(request.body)
             product = Product.objects.get(id=product_id)
@@ -156,13 +161,14 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
                 "price": str(product.price),
                 "stock": product.stock_quantity,
             }
-            return JsonResponse(response, status=200)
+
         elif request.method == "DELETE":
             product = Product.objects.get(id=product_id)
             product.delete()
             response["status"] = "success"
             response["message"] = "Product deleted successfully."
-            return JsonResponse(response, status=200)
+
+        return JsonResponse(response, status=200)
     except Product.DoesNotExist:
         response["message"] = "Product not found."
         return JsonResponse(response, status=404)

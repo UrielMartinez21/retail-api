@@ -1,3 +1,4 @@
+# Django imports
 from django.db.models import Q
 from django.http import HttpRequest
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
