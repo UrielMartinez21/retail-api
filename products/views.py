@@ -15,15 +15,15 @@ import json
 @require_http_methods(["GET", "POST", "OPTIONS"])
 def all_products(request: HttpRequest) -> HttpResponse:
     """Handle product listing and creation operations.
-    
+
     This view provides comprehensive product management functionality:
     - GET: Retrieve filtered and paginated product list
     - POST: Create new product with validation
     - OPTIONS: CORS preflight support
-    
+
     Query Parameters (GET requests):
         category (str, optional): Filter by product category. Valid values:
-            'EL' (Electronics), 'FA' (Fashion), 'HO' (Home), 
+            'EL' (Electronics), 'FA' (Fashion), 'HO' (Home),
             'TO' (Toys), 'SP' (Sports)
         min_price (float, optional): Minimum price filter (e.g., 10.00)
         max_price (float, optional): Maximum price filter (e.g., 100.00)
@@ -31,7 +31,7 @@ def all_products(request: HttpRequest) -> HttpResponse:
             'true' for products with stock > 0, 'false' for out of stock
         page (int, optional): Page number for pagination (default: 1)
         page_size (int, optional): Items per page (default: 10)
-    
+
     Request Body (POST requests):
         JSON object containing:
         - name (str): Product name (max 100 characters, required)
@@ -40,10 +40,10 @@ def all_products(request: HttpRequest) -> HttpResponse:
         - price (float): Product price (required, must be positive)
         - stock (int): Stock quantity (required, must be non-negative)
         - sku (str): Stock keeping unit (max 50 characters, unique, required)
-    
+
     Args:
         request: The HTTP request object containing method, headers, and body
-        
+
     Returns:
         JsonResponse: JSON response with following structure:
             - status (str): 'success' or 'error'
@@ -59,19 +59,19 @@ def all_products(request: HttpRequest) -> HttpResponse:
                     }
                 }
                 For POST: {product object with id, name, description, etc.}
-    
+
     Response Codes:
         200: Successful operation
         400: Bad request (missing required fields, validation errors)
         500: Internal server error
-        
+
     Raises:
         ValidationError: When product data validation fails
         DatabaseError: When database operations fail
-        
+
     Example:
         GET /api/products/?category=EL&min_price=50&page=1&page_size=5
-        POST /api/products/ 
+        POST /api/products/
         {
             "name": "Smartphone",
             "description": "Latest model smartphone",
@@ -129,7 +129,14 @@ def all_products(request: HttpRequest) -> HttpResponse:
             body = json.loads(request.body)
 
             # Validate the required data
-            required_fields = ["name", "description", "category", "price", "stock", "sku"]
+            required_fields = [
+                "name",
+                "description",
+                "category",
+                "price",
+                "stock",
+                "sku",
+            ]
             for field in required_fields:
                 if field not in body:
                     response["message"] = f"El campo '{field}' es obligatorio."
@@ -163,16 +170,16 @@ def all_products(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET", "PUT", "DELETE", "OPTIONS"])
 def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
     """Handle individual product operations (CRUD operations).
-    
+
     This view provides comprehensive single product management functionality:
     - GET: Retrieve specific product details by ID
     - PUT: Update existing product with partial or complete data
     - DELETE: Remove product from database
     - OPTIONS: CORS preflight support
-    
+
     URL Parameters:
         product_id (int): The unique identifier of the product to operate on
-    
+
     Request Body (PUT requests only):
         JSON object containing any of the following optional fields:
         - name (str): Product name (max 100 characters)
@@ -181,11 +188,11 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
         - price (float): Product price (must be positive)
         - stock (int): Stock quantity (must be non-negative)
         Note: SKU cannot be updated for data integrity
-    
+
     Args:
         request: The HTTP request object containing method, headers, and body
         product_id: The unique identifier of the product to retrieve/modify/delete
-        
+
     Returns:
         JsonResponse: JSON response with following structure:
             - status (str): 'success' or 'error'
@@ -201,19 +208,19 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
                     'sku': str
                 }
                 For DELETE: None (data is null)
-    
+
     Response Codes:
         200: Successful operation
         400: Bad request (invalid JSON, validation errors)
         404: Product not found
         500: Internal server error
-        
+
     Raises:
         Product.DoesNotExist: When product with given ID doesn't exist
         JSONDecodeError: When PUT request contains invalid JSON
         ValidationError: When product data validation fails
         DatabaseError: When database operations fail
-        
+
     Example:
         GET /api/products/123/
         PUT /api/products/123/
