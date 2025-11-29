@@ -34,9 +34,9 @@ def build_filters(params: dict) -> Q:
         filters &= Q(price__lte=params["max_price"])
     if params["in_stock"] is not None:
         if params["in_stock"].lower() == "true":
-            filters &= Q(stock_quantity__gt=0)
+            filters &= Q(inventory_items__quantity__gt=0)
         elif params["in_stock"].lower() == "false":
-            filters &= Q(stock_quantity=0)
+            filters &= Q(inventory_items__quantity=0)
     return filters
 
 

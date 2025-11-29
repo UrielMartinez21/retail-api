@@ -13,75 +13,7 @@ import json
 
 @csrf_exempt
 @require_http_methods(["GET", "POST", "OPTIONS"])
-def all_products(request: HttpRequest) -> HttpResponse:
-    """Handle product listing and creation operations.
-
-    This view provides comprehensive product management functionality:
-    - GET: Retrieve filtered and paginated product list
-    - POST: Create new product with validation
-    - OPTIONS: CORS preflight support
-
-    Query Parameters (GET requests):
-        category (str, optional): Filter by product category. Valid values:
-            'EL' (Electronics), 'FA' (Fashion), 'HO' (Home),
-            'TO' (Toys), 'SP' (Sports)
-        min_price (float, optional): Minimum price filter (e.g., 10.00)
-        max_price (float, optional): Maximum price filter (e.g., 100.00)
-        in_stock (str, optional): Stock availability filter.
-            'true' for products with stock > 0, 'false' for out of stock
-        page (int, optional): Page number for pagination (default: 1)
-        page_size (int, optional): Items per page (default: 10)
-
-    Request Body (POST requests):
-        JSON object containing:
-        - name (str): Product name (max 100 characters, required)
-        - description (str): Product description (required)
-        - category (str): Product category code (required)
-        - price (float): Product price (required, must be positive)
-        - stock (int): Stock quantity (required, must be non-negative)
-        - sku (str): Stock keeping unit (max 50 characters, unique, required)
-
-    Args:
-        request: The HTTP request object containing method, headers, and body
-
-    Returns:
-        JsonResponse: JSON response with following structure:
-            - status (str): 'success' or 'error'
-            - message (str): Error message if status is 'error'
-            - data (dict): Response payload containing:
-                For GET: {
-                    'products': [list of product objects],
-                    'pagination': {
-                        'current_page': int,
-                        'total_pages': int,
-                        'total_items': int,
-                        'page_size': int
-                    }
-                }
-                For POST: {product object with id, name, description, etc.}
-
-    Response Codes:
-        200: Successful operation
-        400: Bad request (missing required fields, validation errors)
-        500: Internal server error
-
-    Raises:
-        ValidationError: When product data validation fails
-        DatabaseError: When database operations fail
-
-    Example:
-        GET /api/products/?category=EL&min_price=50&page=1&page_size=5
-        POST /api/products/
-        {
-            "name": "Smartphone",
-            "description": "Latest model smartphone",
-            "category": "EL",
-            "price": 599.99,
-            "stock": 10,
-            "sku": "PHONE001"
-        }
-    """
-
+def products(request: HttpRequest) -> HttpResponse:
     response = {"status": "error", "message": "", "data": None}
     try:
         if request.method == "OPTIONS":
@@ -93,7 +25,7 @@ def all_products(request: HttpRequest) -> HttpResponse:
 
             # Build filters and apply them
             filters = build_filters(params)
-            filtered_products = Product.objects.filter(filters)
+            filtered_products = Product.objects.filter(filters).prefetch_related('inventory_items').distinct()
 
             # Build pagination
             paginator, products_page = build_pagination_params(
@@ -101,17 +33,18 @@ def all_products(request: HttpRequest) -> HttpResponse:
             )
 
             # Build the products list
-            products_list = [
-                {
+            products_list = []
+            for product in products_page:
+                total_stock = sum(item.quantity for item in product.inventory_items.all())
+                products_list.append({
                     "id": product.id,
                     "name": product.name,
                     "description": product.description,
                     "category": product.get_category_display(),
                     "price": str(product.price),
                     "sku": product.sku,
-                }
-                for product in products_page
-            ]
+                    "total_stock": total_stock,
+                })
 
             # Build response
             response["status"] = "success"
@@ -134,7 +67,6 @@ def all_products(request: HttpRequest) -> HttpResponse:
                 "description",
                 "category",
                 "price",
-                "stock",
                 "sku",
             ]
             for field in required_fields:
@@ -237,7 +169,8 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
             response["status"] = "success"
 
         elif request.method == "GET":
-            product = Product.objects.get(id=product_id)
+            product = Product.objects.prefetch_related('inventory_items').get(id=product_id)
+            total_stock = sum(item.quantity for item in product.inventory_items.all())
             product_data = {
                 "id": product.id,
                 "name": product.name,
@@ -245,13 +178,14 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
                 "category": product.get_category_display(),
                 "price": str(product.price),
                 "sku": product.sku,
+                "total_stock": total_stock,
             }
             response["status"] = "success"
             response["data"] = product_data
 
         elif request.method == "PUT":
             body = json.loads(request.body)
-            product = Product.objects.get(id=product_id)
+            product = Product.objects.prefetch_related('inventory_items').get(id=product_id)
 
             # Update product fields if provided
             product.name = body.get("name", product.name)
@@ -260,6 +194,7 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
             product.price = body.get("price", product.price)
             product.save()
 
+            total_stock = sum(item.quantity for item in product.inventory_items.all())
             response["status"] = "success"
             response["data"] = {
                 "id": product.id,
@@ -267,6 +202,7 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
                 "description": product.description,
                 "category": product.get_category_display(),
                 "price": str(product.price),
+                "total_stock": total_stock,
             }
 
         elif request.method == "DELETE":

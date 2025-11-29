@@ -30,7 +30,7 @@ class Product(models.Model):
     sku = models.CharField(max_length=50, unique=True, verbose_name="SKU")
 
     def __str__(self):
-        return f"{self.name} - "
+        return self.name
 
     class Meta:
         verbose_name = "Product"
