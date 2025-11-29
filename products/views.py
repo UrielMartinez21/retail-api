@@ -224,3 +224,34 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
     except Exception as e:
         response["message"] = str(e)
         return JsonResponse(response, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def store_inventory(request: HttpRequest, store_id: int) -> HttpResponse:
+    response = {"status": "error", "message": "", "data": None}
+    try:
+        if request.method == "OPTIONS":
+            response["status"] = "success"
+
+        elif request.method == "GET":
+            inventories = Inventory.objects.filter(store__id=store_id).select_related('product', 'store')
+            inventory_list = []
+            for inventory in inventories:
+                inventory_list.append({
+                    "id": inventory.id,
+                    "product_id": inventory.product.id,
+                    "store_id": inventory.store.id,
+                    "quantity": inventory.quantity,
+                    "min_stock": inventory.min_stock,
+                })
+
+            response["status"] = "success"
+            response["data"] = {
+                "inventory": inventory_list
+            }
+
+        return JsonResponse(response, status=200)
+    except Exception as e:
+        response["message"] = str(e)
+        return JsonResponse(response, status=500)
