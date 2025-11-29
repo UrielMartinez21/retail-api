@@ -4,7 +4,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
 
 # Local imports
-from .models import Product
+from .models import Product, Store, Inventory
 from .helpers import get_query_params, build_filters, build_pagination_params
 
 # Standard library imports
@@ -68,11 +68,21 @@ def products(request: HttpRequest) -> HttpResponse:
                 "category",
                 "price",
                 "sku",
+                "store_id",
+                "quantity",
+                "min_stock",
             ]
             for field in required_fields:
                 if field not in body:
                     response["message"] = f"El campo '{field}' es obligatorio."
                     return JsonResponse(response, status=400)
+
+            # Get the store
+            try:
+                store = Store.objects.get(id=body["store_id"])
+            except Store.DoesNotExist:
+                response["message"] = "Store not found."
+                return JsonResponse(response, status=400)
 
             # Create the product
             product = Product.objects.create(
@@ -83,6 +93,14 @@ def products(request: HttpRequest) -> HttpResponse:
                 sku=body["sku"],
             )
 
+            # Create inventory entry
+            inventory = Inventory.objects.create(
+                product=product,
+                store=store,
+                quantity=body["quantity"],
+                min_stock=body["min_stock"],
+            )
+
             response["status"] = "success"
             response["data"] = {
                 "id": product.id,
@@ -90,6 +108,13 @@ def products(request: HttpRequest) -> HttpResponse:
                 "description": product.description,
                 "category": product.get_category_display(),
                 "price": str(product.price),
+                "sku": product.sku,
+                "inventory": {
+                    "store_id": store.id,
+                    "store_name": store.name,
+                    "quantity": inventory.quantity,
+                    "min_stock": inventory.min_stock,
+                },
             }
 
         return JsonResponse(response, status=200)
@@ -101,68 +126,6 @@ def products(request: HttpRequest) -> HttpResponse:
 @csrf_exempt
 @require_http_methods(["GET", "PUT", "DELETE", "OPTIONS"])
 def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
-    """Handle individual product operations (CRUD operations).
-
-    This view provides comprehensive single product management functionality:
-    - GET: Retrieve specific product details by ID
-    - PUT: Update existing product with partial or complete data
-    - DELETE: Remove product from database
-    - OPTIONS: CORS preflight support
-
-    URL Parameters:
-        product_id (int): The unique identifier of the product to operate on
-
-    Request Body (PUT requests only):
-        JSON object containing any of the following optional fields:
-        - name (str): Product name (max 100 characters)
-        - description (str): Product description
-        - category (str): Product category code ('EL', 'FA', 'HO', 'TO', 'SP')
-        - price (float): Product price (must be positive)
-        - stock (int): Stock quantity (must be non-negative)
-        Note: SKU cannot be updated for data integrity
-
-    Args:
-        request: The HTTP request object containing method, headers, and body
-        product_id: The unique identifier of the product to retrieve/modify/delete
-
-    Returns:
-        JsonResponse: JSON response with following structure:
-            - status (str): 'success' or 'error'
-            - message (str): Success/error message or empty string
-            - data (dict or None): Response payload containing:
-                For GET/PUT: {
-                    'id': int,
-                    'name': str,
-                    'description': str,
-                    'category': str (display name),
-                    'price': str (decimal formatted),
-                    'stock': int,
-                    'sku': str
-                }
-                For DELETE: None (data is null)
-
-    Response Codes:
-        200: Successful operation
-        400: Bad request (invalid JSON, validation errors)
-        404: Product not found
-        500: Internal server error
-
-    Raises:
-        Product.DoesNotExist: When product with given ID doesn't exist
-        JSONDecodeError: When PUT request contains invalid JSON
-        ValidationError: When product data validation fails
-        DatabaseError: When database operations fail
-
-    Example:
-        GET /api/products/123/
-        PUT /api/products/123/
-        {
-            "name": "Updated Smartphone",
-            "price": 649.99,
-            "stock": 15
-        }
-        DELETE /api/products/123/
-    """
     response = {"status": "error", "message": "", "data": None}
     try:
         if request.method == "OPTIONS":
@@ -192,18 +155,61 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
             product.description = body.get("description", product.description)
             product.category = body.get("category", product.category)
             product.price = body.get("price", product.price)
+            product.sku = body.get("sku", product.sku)
             product.save()
+
+            # Update or create inventory if store_id is provided
+            inventory_data = None
+            if "store_id" in body:
+                try:
+                    store = Store.objects.get(id=body["store_id"])
+                except Store.DoesNotExist:
+                    response["message"] = "Store not found."
+                    return JsonResponse(response, status=400)
+
+                # Get or create inventory entry for this product and store
+                inventory, created = Inventory.objects.get_or_create(
+                    product=product,
+                    store=store,
+                    defaults={
+                        'quantity': body.get("quantity", 0),
+                        'min_stock': body.get("min_stock", 0),
+                    }
+                )
+
+                # If inventory exists and we have new values, update them
+                if not created:
+                    if "quantity" in body:
+                        inventory.quantity = body["quantity"]
+                    if "min_stock" in body:
+                        inventory.min_stock = body["min_stock"]
+                    inventory.save()
+
+                inventory_data = {
+                    "store_id": store.id,
+                    "store_name": store.name,
+                    "quantity": inventory.quantity,
+                    "min_stock": inventory.min_stock,
+                    "created": created,
+                }
 
             total_stock = sum(item.quantity for item in product.inventory_items.all())
             response["status"] = "success"
-            response["data"] = {
+            response_data = {
                 "id": product.id,
                 "name": product.name,
                 "description": product.description,
                 "category": product.get_category_display(),
                 "price": str(product.price),
+                "sku": product.sku,
                 "total_stock": total_stock,
             }
+
+            # Add inventory data if it was updated
+            if inventory_data:
+                response_data["inventory"] = inventory_data
+
+            response["data"] = response_data
 
         elif request.method == "DELETE":
             product = Product.objects.get(id=product_id)
