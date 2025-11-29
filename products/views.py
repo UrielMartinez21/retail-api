@@ -14,20 +14,72 @@ import json
 @csrf_exempt
 @require_http_methods(["GET", "POST", "OPTIONS"])
 def all_products(request: HttpRequest) -> HttpResponse:
-    """
-    View to return filtered products in JSON format with pagination.
-    Filters can be applied using query parameters:
-        - category: Filter by category (e.g., 'EL', 'FA', etc.)
-        - min_price: Minimum price (e.g., 10.00)
-        - max_price: Maximum price (e.g., 100.00)
-        - in_stock: Filter products with stock > 0 (e.g., 'true' or 'false')
-    Pagination parameters:
-        - page: Page number (e.g., 1, 2, 3, etc.)
-        - page_size: Number of items per page (default: 10)
+    """Handle product listing and creation operations.
+    
+    This view provides comprehensive product management functionality:
+    - GET: Retrieve filtered and paginated product list
+    - POST: Create new product with validation
+    - OPTIONS: CORS preflight support
+    
+    Query Parameters (GET requests):
+        category (str, optional): Filter by product category. Valid values:
+            'EL' (Electronics), 'FA' (Fashion), 'HO' (Home), 
+            'TO' (Toys), 'SP' (Sports)
+        min_price (float, optional): Minimum price filter (e.g., 10.00)
+        max_price (float, optional): Maximum price filter (e.g., 100.00)
+        in_stock (str, optional): Stock availability filter.
+            'true' for products with stock > 0, 'false' for out of stock
+        page (int, optional): Page number for pagination (default: 1)
+        page_size (int, optional): Items per page (default: 10)
+    
+    Request Body (POST requests):
+        JSON object containing:
+        - name (str): Product name (max 100 characters, required)
+        - description (str): Product description (required)
+        - category (str): Product category code (required)
+        - price (float): Product price (required, must be positive)
+        - stock (int): Stock quantity (required, must be non-negative)
+        - sku (str): Stock keeping unit (max 50 characters, unique, required)
+    
     Args:
-        request (HttpRequest): The HTTP request object.
+        request: The HTTP request object containing method, headers, and body
+        
     Returns:
-        JsonResponse: A JSON response containing paginated and filtered products.
+        JsonResponse: JSON response with following structure:
+            - status (str): 'success' or 'error'
+            - message (str): Error message if status is 'error'
+            - data (dict): Response payload containing:
+                For GET: {
+                    'products': [list of product objects],
+                    'pagination': {
+                        'current_page': int,
+                        'total_pages': int,
+                        'total_items': int,
+                        'page_size': int
+                    }
+                }
+                For POST: {product object with id, name, description, etc.}
+    
+    Response Codes:
+        200: Successful operation
+        400: Bad request (missing required fields, validation errors)
+        500: Internal server error
+        
+    Raises:
+        ValidationError: When product data validation fails
+        DatabaseError: When database operations fail
+        
+    Example:
+        GET /api/products/?category=EL&min_price=50&page=1&page_size=5
+        POST /api/products/ 
+        {
+            "name": "Smartphone",
+            "description": "Latest model smartphone",
+            "category": "EL",
+            "price": 599.99,
+            "stock": 10,
+            "sku": "PHONE001"
+        }
     """
 
     response = {"status": "error", "message": "", "data": None}
@@ -113,13 +165,67 @@ def all_products(request: HttpRequest) -> HttpResponse:
 @csrf_exempt
 @require_http_methods(["GET", "PUT", "DELETE", "OPTIONS"])
 def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
-    """
-    View to return the details of a specific product by its ID in JSON format.
+    """Handle individual product operations (CRUD operations).
+    
+    This view provides comprehensive single product management functionality:
+    - GET: Retrieve specific product details by ID
+    - PUT: Update existing product with partial or complete data
+    - DELETE: Remove product from database
+    - OPTIONS: CORS preflight support
+    
+    URL Parameters:
+        product_id (int): The unique identifier of the product to operate on
+    
+    Request Body (PUT requests only):
+        JSON object containing any of the following optional fields:
+        - name (str): Product name (max 100 characters)
+        - description (str): Product description
+        - category (str): Product category code ('EL', 'FA', 'HO', 'TO', 'SP')
+        - price (float): Product price (must be positive)
+        - stock (int): Stock quantity (must be non-negative)
+        Note: SKU cannot be updated for data integrity
+    
     Args:
-        request (HttpRequest): The HTTP request object.
-        product_id (int): The ID of the product to retrieve.
+        request: The HTTP request object containing method, headers, and body
+        product_id: The unique identifier of the product to retrieve/modify/delete
+        
     Returns:
-        JsonResponse: A JSON response containing the product details.
+        JsonResponse: JSON response with following structure:
+            - status (str): 'success' or 'error'
+            - message (str): Success/error message or empty string
+            - data (dict or None): Response payload containing:
+                For GET/PUT: {
+                    'id': int,
+                    'name': str,
+                    'description': str,
+                    'category': str (display name),
+                    'price': str (decimal formatted),
+                    'stock': int,
+                    'sku': str
+                }
+                For DELETE: None (data is null)
+    
+    Response Codes:
+        200: Successful operation
+        400: Bad request (invalid JSON, validation errors)
+        404: Product not found
+        500: Internal server error
+        
+    Raises:
+        Product.DoesNotExist: When product with given ID doesn't exist
+        JSONDecodeError: When PUT request contains invalid JSON
+        ValidationError: When product data validation fails
+        DatabaseError: When database operations fail
+        
+    Example:
+        GET /api/products/123/
+        PUT /api/products/123/
+        {
+            "name": "Updated Smartphone",
+            "price": 649.99,
+            "stock": 15
+        }
+        DELETE /api/products/123/
     """
     response = {"status": "error", "message": "", "data": None}
     try:
