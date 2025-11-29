@@ -109,7 +109,6 @@ def all_products(request: HttpRequest) -> HttpResponse:
                     "category": product.get_category_display(),
                     "price": str(product.price),
                     "sku": product.sku,
-                    "stock": product.stock_quantity,
                 }
                 for product in products_page
             ]
@@ -142,7 +141,6 @@ def all_products(request: HttpRequest) -> HttpResponse:
                 description=body["description"],
                 category=body["category"],
                 price=body["price"],
-                stock_quantity=body["stock"],
                 sku=body["sku"],
             )
 
@@ -153,7 +151,6 @@ def all_products(request: HttpRequest) -> HttpResponse:
                 "description": product.description,
                 "category": product.get_category_display(),
                 "price": str(product.price),
-                "stock": product.stock_quantity,
             }
 
         return JsonResponse(response, status=200)
@@ -240,7 +237,6 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
                 "description": product.description,
                 "category": product.get_category_display(),
                 "price": str(product.price),
-                "stock": product.stock_quantity,
                 "sku": product.sku,
             }
             response["status"] = "success"
@@ -255,7 +251,6 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
             product.description = body.get("description", product.description)
             product.category = body.get("category", product.category)
             product.price = body.get("price", product.price)
-            product.stock_quantity = body.get("stock", product.stock_quantity)
             product.save()
 
             response["status"] = "success"
@@ -265,7 +260,6 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
                 "description": product.description,
                 "category": product.get_category_display(),
                 "price": str(product.price),
-                "stock": product.stock_quantity,
             }
 
         elif request.method == "DELETE":
