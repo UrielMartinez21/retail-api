@@ -126,16 +126,16 @@ def inventory_alerts(request: HttpRequest) -> HttpResponse:
     try:
         if request.method == "OPTIONS":
             return build_response("success", 200)
-        
+
         elif request.method == "GET":
             # Get optional store filter
             store_id = request.GET.get('store_id')
-            
+
             # Build base query for low stock items
             low_stock_query = Inventory.objects.filter(
                 quantity__lte=models.F('min_stock')
             ).select_related('product', 'store')
-            
+
             # Apply store filter if provided
             if store_id:
                 try:

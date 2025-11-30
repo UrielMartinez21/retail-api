@@ -13,7 +13,20 @@ from .helpers import (
 import json
 
 def handle_get_products(request: HttpRequest) -> JsonResponse:
-    """Handle GET requests for the products endpoint."""
+    """
+    Handle GET requests for the products endpoint.
+
+    This function processes GET requests to retrieve a list of products based on
+    filtering and pagination parameters. It applies filters, paginates the results,
+    and returns a structured response containing product details and pagination metadata.
+
+    Args:
+        request (HttpRequest): The HTTP request object containing query parameters.
+
+    Returns:
+        JsonResponse: A JSON response containing the filtered and paginated list of products,
+        along with pagination metadata. Returns an error response if the page number is out of range.
+    """
     params = get_query_params(request)
     filters = build_filters(params)
 
@@ -56,7 +69,20 @@ def handle_get_products(request: HttpRequest) -> JsonResponse:
 
 
 def handle_post_product(request: HttpRequest) -> JsonResponse:
-    """Handle POST requests for the products endpoint."""
+    """
+    Handle POST requests for the products endpoint.
+
+    This function processes POST requests to create a new product and its associated
+    inventory in the database. It validates the request payload, ensures the store exists,
+    and creates the product and inventory records.
+
+    Args:
+        request (HttpRequest): The HTTP request object containing the JSON payload.
+
+    Returns:
+        JsonResponse: A JSON response containing the details of the created product and inventory.
+        Returns an error response if the payload is invalid, required fields are missing, or the store does not exist.
+    """
     try:
         body = json.loads(request.body)
     except json.JSONDecodeError:
@@ -109,7 +135,19 @@ def handle_post_product(request: HttpRequest) -> JsonResponse:
     )
 
 def handle_get_product(product_id: int) -> JsonResponse:
-    """Handle GET request for a specific product."""
+    """
+    Handle GET request for a specific product.
+
+    This function retrieves the details of a specific product, including its total stock
+    across all inventory items. If the product does not exist, an error response is returned.
+
+    Args:
+        product_id (int): The ID of the product to retrieve.
+
+    Returns:
+        JsonResponse: A JSON response containing the product details, including total stock.
+        Returns an error response if the product does not exist.
+    """
     try:
         product = Product.objects.prefetch_related("inventory_items").get(id=product_id)
         total_stock = product.inventory_items.aggregate(total=Sum("quantity"))["total"] or 0
@@ -130,7 +168,23 @@ def handle_get_product(product_id: int) -> JsonResponse:
 
 
 def handle_put_product(request: HttpRequest, product_id: int) -> JsonResponse:
-    """Handle PUT request to update product details."""
+    """
+    Handle PUT request to update product details.
+
+    This function processes PUT requests to update the details of an existing product.
+    It updates the product fields, and if a store ID is provided, it updates or creates
+    the associated inventory record. The function ensures that the product and store exist
+    and validates the request payload.
+
+    Args:
+        request (HttpRequest): The HTTP request object containing the JSON payload.
+        product_id (int): The ID of the product to update.
+
+    Returns:
+        JsonResponse: A JSON response containing the updated product details, including inventory
+        information if applicable. Returns an error response if the product or store does not exist
+        or if the payload is invalid.
+    """
     try:
         body = json.loads(request.body)
         product = Product.objects.prefetch_related("inventory_items").get(id=product_id)
@@ -199,7 +253,18 @@ def handle_put_product(request: HttpRequest, product_id: int) -> JsonResponse:
 
 
 def handle_delete_product(product_id: int) -> JsonResponse:
-    """Handle DELETE request to remove a product."""
+    """
+    Handle DELETE request to remove a product.
+
+    This function processes DELETE requests to remove a product from the database.
+    If the product exists, it is deleted. If the product does not exist, an error response is returned.
+
+    Args:
+        product_id (int): The ID of the product to delete.
+
+    Returns:
+        JsonResponse: A JSON response indicating the success or failure of the deletion operation.
+    """
     try:
         product = Product.objects.get(id=product_id)
         product.delete()
