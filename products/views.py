@@ -1,7 +1,7 @@
 # Django imports
 from django.db import transaction, models
 from django.views.decorators.csrf import csrf_exempt
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse
 from django.views.decorators.http import require_http_methods
 
 # Local imports
