@@ -3,15 +3,15 @@ services:
     image: postgres:15
     restart: always
     environment:
-      POSTGRES_DB: retail_api_db
-      POSTGRES_USER: retail_user
-      POSTGRES_PASSWORD: retail_password
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U retail_user -d retail_api_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -28,14 +28,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      - DB_HOST=db
-      - DB_NAME=retail_api_db
-      - DB_USER=retail_user
-      - DB_PASSWORD=retail_password
-      - DB_PORT=5432
-      - DEBUG=True
-      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
-      - SECRET_KEY=django-insecure-bf&@2g!mj6*r4m*njnv^1$$h8t8sj*p8l%5^n#e+h$$f!0&1n6
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PORT=${DB_PORT}
+      - DEBUG=${DEBUG}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - SECRET_KEY=${SECRET_KEY}
     volumes:
       - .:/app
 
