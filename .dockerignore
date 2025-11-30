@@ -1,0 +1,9 @@
+# Directories to ignore
+__pycache__/
+.venv/
+.github/
+.vscode/
+.git/
+
+# Files to ignore
+.gitignore
