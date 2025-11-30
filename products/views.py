@@ -83,7 +83,7 @@ def products(request: HttpRequest) -> HttpResponse:
             ]
             for field in required_fields:
                 if field not in body:
-                    response["message"] = f"El campo '{field}' es obligatorio."
+                    response["message"] = f"The field '{field}' is required."
                     return JsonResponse(response, status=400)
 
             # Get the store
