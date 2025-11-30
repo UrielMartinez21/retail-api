@@ -1,7 +1,6 @@
 # Django imports
 from django.db.models import Q
-from django.http import HttpRequest
-from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.http import HttpRequest, JsonResponse
 
 
 def get_query_params(request: HttpRequest) -> dict:
@@ -40,14 +39,7 @@ def build_filters(params: dict) -> Q:
     return filters
 
 
-def build_pagination_params(filtered_products, page: int, page_size: int) -> tuple:
-    """Extract and return pagination parameters."""
-    paginator = Paginator(filtered_products, page_size)
-    try:
-        products_page = paginator.page(page)
-    except PageNotAnInteger:
-        products_page = paginator.page(1)
-    except EmptyPage:
-        products_page = []
+def build_response(status: str, status_code = int, message: str = "", data: dict = None) -> JsonResponse:
+    """Helper function to build consistent JSON responses."""
+    return JsonResponse({"status": status, "message": message, "data": data}, status= status_code)
 
-    return paginator, products_page

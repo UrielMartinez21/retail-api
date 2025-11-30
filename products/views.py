@@ -6,7 +6,11 @@ from django.views.decorators.http import require_http_methods
 
 # Local imports
 from .models import Product, Store, Inventory, Movement
-from .helpers import get_query_params, build_filters, build_pagination_params
+from .handles import (
+    handle_get_products, handle_post_product,
+    handle_get_product, handle_put_product, handle_delete_product
+)
+from .helpers import build_response
 
 # Standard library imports
 import json
@@ -15,233 +19,44 @@ import json
 @csrf_exempt
 @require_http_methods(["GET", "POST", "OPTIONS"])
 def products(request: HttpRequest) -> HttpResponse:
-    response = {"status": "error", "message": "", "data": None}
-    try:
-        if request.method == "OPTIONS":
-            response["status"] = "success"
+    """Handle requests for the products endpoint."""
 
-        elif request.method == "GET":
-            # Extract query parameters
-            params = get_query_params(request)
+    if request.method == "OPTIONS":
+        return build_response("success", 200)
 
-            # Build filters and apply them
-            filters = build_filters(params)
-            filtered_products = (
-                Product.objects.filter(filters)
-                .prefetch_related("inventory_items")
-                .distinct()
-            )
+    if request.method == "GET":
+        return handle_get_products(request)
 
-            # Build pagination
-            paginator, products_page = build_pagination_params(
-                filtered_products, int(params["page"]), int(params["page_size"])
-            )
-
-            # Build the products list
-            products_list = []
-            for product in products_page:
-                total_stock = sum(
-                    item.quantity for item in product.inventory_items.all()
-                )
-                products_list.append(
-                    {
-                        "id": product.id,
-                        "name": product.name,
-                        "description": product.description,
-                        "category": product.get_category_display(),
-                        "price": str(product.price),
-                        "sku": product.sku,
-                        "total_stock": total_stock,
-                    }
-                )
-
-            # Build response
-            response["status"] = "success"
-            response["data"] = {
-                "products": products_list,
-                "pagination": {
-                    "current_page": int(params["page"]),
-                    "total_pages": paginator.num_pages,
-                    "total_items": paginator.count,
-                    "page_size": int(params["page_size"]),
-                },
-            }
-
-        elif request.method == "POST":
-            body = json.loads(request.body)
-
-            # Validate the required data
-            required_fields = [
-                "name",
-                "description",
-                "category",
-                "price",
-                "sku",
-                "store_id",
-                "quantity",
-                "min_stock",
-            ]
-            for field in required_fields:
-                if field not in body:
-                    response["message"] = f"The field '{field}' is required."
-                    return JsonResponse(response, status=400)
-
-            # Get the store
-            try:
-                store = Store.objects.get(id=body["store_id"])
-            except Store.DoesNotExist:
-                response["message"] = "Store not found."
-                return JsonResponse(response, status=400)
-
-            # Create the product
-            product = Product.objects.create(
-                name=body["name"],
-                description=body["description"],
-                category=body["category"],
-                price=body["price"],
-                sku=body["sku"],
-            )
-
-            # Create inventory entry
-            inventory = Inventory.objects.create(
-                product=product,
-                store=store,
-                quantity=body["quantity"],
-                min_stock=body["min_stock"],
-            )
-
-            response["status"] = "success"
-            response["data"] = {
-                "id": product.id,
-                "name": product.name,
-                "description": product.description,
-                "category": product.get_category_display(),
-                "price": str(product.price),
-                "sku": product.sku,
-                "inventory": {
-                    "store_id": store.id,
-                    "store_name": store.name,
-                    "quantity": inventory.quantity,
-                    "min_stock": inventory.min_stock,
-                },
-            }
-
-        return JsonResponse(response, status=200)
-    except Exception as e:
-        response["message"] = str(e)
-        return JsonResponse(response, status=500)
+    if request.method == "POST":
+        return handle_post_product(request)
 
 
 @csrf_exempt
 @require_http_methods(["GET", "PUT", "DELETE", "OPTIONS"])
 def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
-    response = {"status": "error", "message": "", "data": None}
-    try:
-        if request.method == "OPTIONS":
-            response["status"] = "success"
+    """Handle requests for a specific product."""
 
-        elif request.method == "GET":
-            product = Product.objects.prefetch_related("inventory_items").get(id=product_id)
-            total_stock = sum(item.quantity for item in product.inventory_items.all())
-            product_data = {
-                "id": product.id,
-                "name": product.name,
-                "description": product.description,
-                "category": product.get_category_display(),
-                "price": str(product.price),
-                "sku": product.sku,
-                "total_stock": total_stock,
-            }
-            response["status"] = "success"
-            response["data"] = product_data
+    if request.method == "OPTIONS":
+        return build_response("success", 200)
 
-        elif request.method == "PUT":
-            body = json.loads(request.body)
-            product = Product.objects.prefetch_related("inventory_items").get(id=product_id)
+    if request.method == "GET":
+        return handle_get_product(product_id)
 
-            # Update product fields if provided
-            product.name = body.get("name", product.name)
-            product.description = body.get("description", product.description)
-            product.category = body.get("category", product.category)
-            product.price = body.get("price", product.price)
-            product.sku = body.get("sku", product.sku)
-            product.save()
+    if request.method == "PUT":
+        return handle_put_product(request, product_id)
 
-            # Update or create inventory if store_id is provided
-            inventory_data = None
-            if "store_id" in body:
-                try:
-                    store = Store.objects.get(id=body["store_id"])
-                except Store.DoesNotExist:
-                    response["message"] = "Store not found."
-                    return JsonResponse(response, status=400)
-
-                # Get or create inventory entry for this product and store
-                inventory, created = Inventory.objects.get_or_create(
-                    product=product,
-                    store=store,
-                    defaults={
-                        "quantity": body.get("quantity", 0),
-                        "min_stock": body.get("min_stock", 0),
-                    },
-                )
-
-                # If inventory exists and we have new values, update them
-                if not created:
-                    if "quantity" in body:
-                        inventory.quantity = body["quantity"]
-                    if "min_stock" in body:
-                        inventory.min_stock = body["min_stock"]
-                    inventory.save()
-
-                inventory_data = {
-                    "store_id": store.id,
-                    "store_name": store.name,
-                    "quantity": inventory.quantity,
-                    "min_stock": inventory.min_stock,
-                    "created": created,
-                }
-
-            total_stock = sum(item.quantity for item in product.inventory_items.all())
-            response["status"] = "success"
-            response_data = {
-                "id": product.id,
-                "name": product.name,
-                "description": product.description,
-                "category": product.get_category_display(),
-                "price": str(product.price),
-                "sku": product.sku,
-                "total_stock": total_stock,
-            }
-
-            # Add inventory data if it was updated
-            if inventory_data:
-                response_data["inventory"] = inventory_data
-
-            response["data"] = response_data
-
-        elif request.method == "DELETE":
-            product = Product.objects.get(id=product_id)
-            product.delete()
-            response["status"] = "success"
-            response["message"] = "Product deleted successfully."
-
-        return JsonResponse(response, status=200)
-    except Product.DoesNotExist:
-        response["message"] = "Product not found."
-        return JsonResponse(response, status=404)
-    except Exception as e:
-        response["message"] = str(e)
-        return JsonResponse(response, status=500)
+    if request.method == "DELETE":
+        return handle_delete_product(product_id)
 
 
 @csrf_exempt
 @require_http_methods(["GET", "OPTIONS"])
 def store_inventory(request: HttpRequest, store_id: int) -> HttpResponse:
-    response = {"status": "error", "message": "", "data": None}
+    """List inventory for a specific store."""
+
     try:
         if request.method == "OPTIONS":
-            response["status"] = "success"
+            return build_response("success", 200)
 
         elif request.method == "GET":
             inventories = Inventory.objects.filter(store__id=store_id).select_related("product", "store")
@@ -257,35 +72,19 @@ def store_inventory(request: HttpRequest, store_id: int) -> HttpResponse:
                     }
                 )
 
-            response["status"] = "success"
-            response["data"] = {"inventory": inventory_list}
-
-        return JsonResponse(response, status=200)
+            return build_response("success", 200, data={"inventory": inventory_list})
     except Exception as e:
-        response["message"] = str(e)
-        return JsonResponse(response, status=500)
+        return build_response("error", 500, message=str(e))
 
 
 @csrf_exempt
 @require_http_methods(["POST", "OPTIONS"])
 def transfer_inventory(request: HttpRequest) -> HttpResponse:
-    """Transfer products between stores with stock validation.
-
-    Required fields:
-        - product_id: ID of the product to transfer
-        - source_store_id: ID of the source store
-        - target_store_id: ID of the target store
-        - quantity: Amount to transfer
-
-    Returns:
-        JsonResponse with transfer details and updated inventory
-    """
-    response = {"status": "error", "message": "", "data": None}
+    """Transfer products between stores with stock validation."""
 
     try:
         if request.method == "OPTIONS":
-            response["status"] = "success"
-            return JsonResponse(response, status=200)
+            return build_response("success", 200)
 
         elif request.method == "POST":
             body = json.loads(request.body)
@@ -299,36 +98,29 @@ def transfer_inventory(request: HttpRequest) -> HttpResponse:
             ]
             for field in required_fields:
                 if field not in body:
-                    response["message"] = f"The field'{field}' is required."
-                    return JsonResponse(response, status=400)
+                    return build_response("error", 400, message=f"The field '{field}' is required.")
 
             # Validate quantity is positive
             quantity = body["quantity"]
             if not isinstance(quantity, int) or quantity <= 0:
-                response["message"] = "The quantity must be a positive integer."
-                return JsonResponse(response, status=400)
+                return build_response("error", 400, message="The quantity must be a positive integer.")
 
             # Validate stores are different
             if body["source_store_id"] == body["target_store_id"]:
-                response["message"] = (
-                    "The origin and destination stores must be different."
-                )
-                return JsonResponse(response, status=400)
+                return build_response("error", 400, message="The origin and destination stores must be different.")
 
             # Get product
             try:
                 product = Product.objects.get(id=body["product_id"])
             except Product.DoesNotExist:
-                response["message"] = "Product not found."
-                return JsonResponse(response, status=404)
+                return build_response("error", 404, message="Product not found.")
 
             # Get stores
             try:
                 source_store = Store.objects.get(id=body["source_store_id"])
                 target_store = Store.objects.get(id=body["target_store_id"])
             except Store.DoesNotExist:
-                response["message"] = "One or both stores could not be found."
-                return JsonResponse(response, status=404)
+                return build_response("error", 404, message="One or both stores could not be found.")
 
             # Get source inventory
             try:
@@ -336,17 +128,22 @@ def transfer_inventory(request: HttpRequest) -> HttpResponse:
                     product=product, store=source_store
                 )
             except Inventory.DoesNotExist:
-                response["message"] = (
-                    f"The product is out of stock '{product.name}' in the store '{source_store.name}'."
+                return build_response(
+                    "error",
+                    400,
+                    message=f"The product '{product.name}' is not available in the store '{source_store.name}'.",
                 )
-                return JsonResponse(response, status=400)
 
             # Validate sufficient stock
             if source_inventory.quantity < quantity:
-                response["message"] = (
-                    f"Insufficient stock. Available: {source_inventory.quantity}, Required: {quantity}."
+                return build_response(
+                    "error",
+                    400,
+                    message=(
+                        f"Insufficient stock in store '{source_store.name}'. "
+                        f"Available: {source_inventory.quantity}, Required: {quantity}."
+                    ),
                 )
-                return JsonResponse(response, status=400)
 
             # Perform transfer using transaction for data integrity
             with transaction.atomic():
@@ -375,56 +172,43 @@ def transfer_inventory(request: HttpRequest) -> HttpResponse:
                 )
 
             # Build response
-            response["status"] = "success"
-            response["message"] = "Transfer completed successfully."
-            response["data"] = {
-                "transfer_id": movement.id,
-                "product": {"id": product.id, "name": product.name, "sku": product.sku},
-                "source_store": {
-                    "id": source_store.id,
-                    "name": source_store.name,
-                    "remaining_stock": source_inventory.quantity,
+            return build_response(
+                "success",
+                200,
+                message="Transfer completed successfully.",
+                data={
+                    "transfer_id": movement.id,
+                    "product": {"id": product.id, "name": product.name, "sku": product.sku},
+                    "source_store": {
+                        "id": source_store.id,
+                        "name": source_store.name,
+                        "remaining_stock": source_inventory.quantity,
+                    },
+                    "target_store": {
+                        "id": target_store.id,
+                        "name": target_store.name,
+                        "new_stock": target_inventory.quantity,
+                        "inventory_created": created,
+                    },
+                    "quantity_transferred": quantity,
+                    "timestamp": movement.timestamp.isoformat(),
                 },
-                "target_store": {
-                    "id": target_store.id,
-                    "name": target_store.name,
-                    "new_stock": target_inventory.quantity,
-                    "inventory_created": created,
-                },
-                "quantity_transferred": quantity,
-                "timestamp": movement.timestamp.isoformat(),
-            }
-
-            return JsonResponse(response, status=200)
+            )
 
     except json.JSONDecodeError:
-        response["message"] = "JSON inválido en el cuerpo de la solicitud."
-        return JsonResponse(response, status=400)
+        return build_response("error", 400, message="Invalid JSON in request body.")
     except Exception as e:
-        response["message"] = f"Error interno del servidor: {str(e)}"
-        return JsonResponse(response, status=500)
+        return build_response("error", 500, message=str(e))
 
 
 @csrf_exempt
 @require_http_methods(["GET", "OPTIONS"])
 def inventory_alerts(request: HttpRequest) -> HttpResponse:
-    """List products with low stock alerts.
-    
-    Returns products where inventory quantity is less than or equal to min_stock.
-    Supports filtering by store_id via query parameter.
-    
-    Query Parameters:
-        store_id (optional): Filter alerts for specific store
-    
-    Returns:
-        JsonResponse with list of low stock products
-    """
-    response = {"status": "error", "message": "", "data": None}
-    
+    """List products with low stock alerts."""
+
     try:
         if request.method == "OPTIONS":
-            response["status"] = "success"
-            return JsonResponse(response, status=200)
+            return build_response("success", 200)
         
         elif request.method == "GET":
             # Get optional store filter
@@ -441,8 +225,7 @@ def inventory_alerts(request: HttpRequest) -> HttpResponse:
                     store = Store.objects.get(id=store_id)
                     low_stock_query = low_stock_query.filter(store=store)
                 except Store.DoesNotExist:
-                    response["message"] = "Store not found."
-                    return JsonResponse(response, status=404)
+                    return build_response("error", 404, message="Store not found.")
             
             # Get low stock items
             low_stock_items = low_stock_query.order_by('product__name', 'store__name')
@@ -475,33 +258,32 @@ def inventory_alerts(request: HttpRequest) -> HttpResponse:
             critical_alerts = len([alert for alert in alerts_list if alert["alert_level"] == "critical"])
             warning_alerts = total_alerts - critical_alerts
             
-            response["status"] = "success"
-            response["data"] = {
-                "alerts": alerts_list,
-                "summary": {
-                    "total_alerts": total_alerts,
-                    "critical_alerts": critical_alerts,
-                    "warning_alerts": warning_alerts
-                },
-                "filter_applied": {
-                    "store_id": store_id if store_id else None
+            return build_response(
+                "success",
+                200,
+                data={
+                    "alerts": alerts_list,
+                    "summary": {
+                        "total_alerts": total_alerts,
+                        "critical_alerts": critical_alerts,
+                        "warning_alerts": warning_alerts
+                    },
+                    "filter_applied": {
+                        "store_id": store_id if store_id else None
+                    }
                 }
-            }
-            
-            return JsonResponse(response, status=200)
-    
+            )
+
     except Exception as e:
-        response["message"] = f"Error interno del servidor: {str(e)}"
-        return JsonResponse(response, status=500)
-    
+        return build_response("error", 500, message=str(e))
+
 
 @csrf_exempt
 @require_http_methods(["GET", "OPTIONS"])
 def movements(request: HttpRequest) -> HttpResponse:
-    response = {"status": "error", "message": "", "data": None}
     try:
         if request.method == "OPTIONS":
-            response["status"] = "success"
+            return build_response("success", 200)
 
         elif request.method == "GET":
             movements = Movement.objects.select_related(
@@ -536,10 +318,11 @@ def movements(request: HttpRequest) -> HttpResponse:
                     }
                 )
 
-            response["status"] = "success"
-            response["data"] = {"movements": movements_list}
+            return build_response(
+                "success",
+                200,
+                data={"movements": movements_list}
+            )
 
-        return JsonResponse(response, status=200)
     except Exception as e:
-        response["message"] = str(e)
-        return JsonResponse(response, status=500)
+        return build_response("error", 500, message=str(e))
