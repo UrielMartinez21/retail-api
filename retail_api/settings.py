@@ -78,14 +78,14 @@ WSGI_APPLICATION = 'retail_api.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='retail_api_db'),
-        'USER': config('DB_USER', default='retail_user'),
-        'PASSWORD': config('DB_PASSWORD', default='retail_password'),
-        'HOST': config('DB_HOST', default='db'),
-        'PORT': config('DB_PORT', default='5432'),
-        # 'ENGINE': 'django.db.backends.sqlite3',
-        # 'NAME': BASE_DIR / 'db.sqlite3',
+        # 'ENGINE': 'django.db.backends.postgresql',
+        # 'NAME': config('DB_NAME', default='retail_api_db'),
+        # 'USER': config('DB_USER', default='retail_user'),
+        # 'PASSWORD': config('DB_PASSWORD', default='retail_password'),
+        # 'HOST': config('DB_HOST', default='db'),
+        # 'PORT': config('DB_PORT', default='5432'),
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 
@@ -134,55 +134,78 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Logging Configuration - Structured JSON Logs
 import os
 
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'json': {
-            '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
-            'format': '%(asctime)s %(name)s %(levelname)s %(message)s',
+# Disable JSON logging for tests if library not available
+USE_JSON_LOGGING = True
+try:
+    import pythonjsonlogger
+except ImportError:
+    USE_JSON_LOGGING = False
+
+if USE_JSON_LOGGING:
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'json': {
+                '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
+                'format': '%(asctime)s %(name)s %(levelname)s %(message)s',
+            },
+            'verbose': {
+                'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+                'style': '{',
+            },
         },
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
-            'style': '{',
+        'handlers': {
+            'console_json': {
+                'class': 'logging.StreamHandler',
+                'formatter': 'json',
+            },
+            'console_verbose': {
+                'class': 'logging.StreamHandler',
+                'formatter': 'verbose',
+            },
+            'file_json': {
+                'class': 'logging.handlers.RotatingFileHandler',
+                'filename': os.path.join(BASE_DIR, 'logs', 'app.log'),
+                'maxBytes': 1024*1024*5,  # 5MB
+                'backupCount': 5,
+                'formatter': 'json',
+            },
         },
-    },
-    'handlers': {
-        'console_json': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'json',
-        },
-        'console_verbose': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
-        },
-        'file_json': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'app.log'),
-            'maxBytes': 1024*1024*5,  # 5MB
-            'backupCount': 5,
-            'formatter': 'json',
-        },
-    },
-    'root': {
-        'handlers': ['console_json'],
-        'level': config('LOG_LEVEL', default='INFO'),
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console_json', 'file_json'],
+        'root': {
+            'handlers': ['console_json'],
             'level': config('LOG_LEVEL', default='INFO'),
-            'propagate': False,
         },
-        'products': {
-            'handlers': ['console_json', 'file_json'],
+        'loggers': {
+            'django': {
+                'handlers': ['console_json', 'file_json'],
+                'level': config('LOG_LEVEL', default='INFO'),
+                'propagate': False,
+            },
+            'products': {
+                'handlers': ['console_json', 'file_json'],
+                'level': config('LOG_LEVEL', default='INFO'),
+                'propagate': False,
+            },
+            'retail_api': {
+                'handlers': ['console_json', 'file_json'],
+                'level': config('LOG_LEVEL', default='INFO'),
+                'propagate': False,
+            },
+        },
+    }
+else:
+    # Fallback to simple logging
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {
+            'console': {
+                'class': 'logging.StreamHandler',
+            },
+        },
+        'root': {
+            'handlers': ['console'],
             'level': config('LOG_LEVEL', default='INFO'),
-            'propagate': False,
         },
-        'retail_api': {
-            'handlers': ['console_json', 'file_json'],
-            'level': config('LOG_LEVEL', default='INFO'),
-            'propagate': False,
-        },
-    },
-}
+    }

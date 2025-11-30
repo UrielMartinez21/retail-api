@@ -11,6 +11,10 @@ from .helpers import (
 
 # Standard library imports
 import json
+import logging
+
+# Logger for this module
+logger = logging.getLogger(__name__)
 
 def handle_get_products(request: HttpRequest) -> JsonResponse:
     """

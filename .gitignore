@@ -9,3 +9,9 @@ db.sqlite3
 # Log files
 logs/
 *.log
+
+# Coverage files
+.coverage
+htmlcov/
+coverage.xml
+.pytest_cache/
