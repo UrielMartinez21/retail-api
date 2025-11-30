@@ -7,3 +7,16 @@ __pycache__/
 
 # Files to ignore
 .gitignore
+.env
+db.sqlite3
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
