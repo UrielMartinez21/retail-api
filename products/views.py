@@ -16,17 +16,49 @@ from .helpers import build_response, fetch_product_and_stores, perform_inventory
 
 # Standard library imports
 import json
+import logging
+
+# Logger for this module
+logger = logging.getLogger(__name__)
 
 
 @csrf_exempt
 @require_http_methods(["GET", "POST", "OPTIONS"])
 def products(request: HttpRequest) -> HttpResponse:
     """Handle requests for the products endpoint."""
+    
+    log_id = getattr(request, 'log_id', 'unknown')
+    
+    logger.info(
+        "Products endpoint accessed",
+        extra={
+            'log_id': log_id,
+            'endpoint': 'products',
+            'method': request.method,
+            'event_type': 'endpoint_access'
+        }
+    )
 
     if request.method == "OPTIONS":
+        logger.debug(
+            "OPTIONS request handled",
+            extra={
+                'log_id': log_id,
+                'endpoint': 'products',
+                'event_type': 'options_request'
+            }
+        )
         return build_response("success", 200)
 
     if request.method == "GET":
+        logger.info(
+            "Processing GET products request",
+            extra={
+                'log_id': log_id,
+                'endpoint': 'products',
+                'event_type': 'get_products'
+            }
+        )
         return handle_get_products(request)
 
     if request.method == "POST":

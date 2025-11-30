@@ -9,7 +9,10 @@ from products.models import Product, Store, Inventory, Movement
 
 # Standard library imports
 from typing import Tuple
+import logging
 
+# Logger for this module
+logger = logging.getLogger(__name__)
 
 # Constants
 REQUIRED_FIELDS = ["product_id", "source_store_id", "target_store_id", "quantity"]
