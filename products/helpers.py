@@ -4,7 +4,24 @@ from django.http import HttpRequest, JsonResponse
 
 
 def get_query_params(request: HttpRequest) -> dict:
-    """Extract and return query parameters from the request."""
+    """Extract and validate query parameters from HTTP request for product filtering.
+
+    This function processes query parameters commonly used for product filtering
+    such as category, price range, stock status, and pagination parameters.
+
+    Args:
+        request (HttpRequest): The HTTP request object containing query parameters
+
+    Returns:
+        dict: Dictionary containing extracted parameters with the following keys:
+            - category (str | None): Product category filter
+            - min_price (str | None): Minimum price filter
+            - max_price (str | None): Maximum price filter  
+            - in_stock (str | None): Stock availability filter ("true"/"false")
+            - page (str): Page number for pagination (default: "1")
+            - page_size (str): Number of items per page (default: "10")
+    """
+
     category = request.GET.get("category")
     min_price = request.GET.get("min_price")
     max_price = request.GET.get("max_price")
@@ -23,7 +40,22 @@ def get_query_params(request: HttpRequest) -> dict:
 
 
 def build_filters(params: dict) -> Q:
-    """Build and return query filters based on the provided parameters."""
+    """Build Django Q object filters for product queries based on provided parameters.
+
+    Constructs complex database query filters using Django's Q objects for
+    product filtering by category, price range, and inventory status.
+
+    Args:
+        params (dict): Dictionary containing filter parameters with keys:
+            - category (str | None): Filter by product category
+            - min_price (str | None): Minimum price threshold
+            - max_price (str | None): Maximum price threshold
+            - in_stock (str | None): Stock filter ("true"/"false"/"")
+            
+    Returns:
+        Q: Django Q object containing combined filters for database query.
+        Returns empty Q() if no valid filters provided.
+    """
     filters = Q()
     if params["category"]:
         filters &= Q(category=params["category"])
@@ -40,6 +72,26 @@ def build_filters(params: dict) -> Q:
 
 
 def build_response(status: str, status_code = int, message: str = "", data: dict = None) -> JsonResponse:
-    """Helper function to build consistent JSON responses."""
+    """Build standardized JSON response for API endpoints.
+
+    Creates consistent JSON responses following a standard structure for
+    all API endpoints in the application. Ensures uniform error handling
+    and success response formatting.
+
+    Args:
+        params (dict): Dictionary containing response parameters:
+            - status (str): Response status indicator ("success", "error", "warning")
+            - status_code (int): HTTP status code (200, 400, 404, 500, etc.)
+            - message (str, optional): Human-readable message describing the response.
+            - data (dict | None, optional): Response payload containing actual data.
+
+    Returns:
+        JsonResponse: Django JsonResponse object with standardized structure:
+            {
+                "status": str,
+                "message": str,
+                "data": dict | None
+            }
+    """
     return JsonResponse({"status": status, "message": message, "data": data}, status= status_code)
 
