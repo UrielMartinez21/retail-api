@@ -50,7 +50,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'retail_api.middleware.StructuredLoggingMiddleware',
 ]
 
 ROOT_URLCONF = 'retail_api.urls'
@@ -131,81 +130,42 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Logging Configuration - Structured JSON Logs
+# Simple logging configuration for endpoint logs
 import os
 
-# Disable JSON logging for tests if library not available
-USE_JSON_LOGGING = True
-try:
-    import pythonjsonlogger
-except ImportError:
-    USE_JSON_LOGGING = False
+# Create logs directory if it doesn't exist
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)
 
-if USE_JSON_LOGGING:
-    LOGGING = {
-        'version': 1,
-        'disable_existing_loggers': False,
-        'formatters': {
-            'json': {
-                '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
-                'format': '%(asctime)s %(name)s %(levelname)s %(message)s',
-            },
-            'verbose': {
-                'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
-                'style': '{',
-            },
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
         },
-        'handlers': {
-            'console_json': {
-                'class': 'logging.StreamHandler',
-                'formatter': 'json',
-            },
-            'console_verbose': {
-                'class': 'logging.StreamHandler',
-                'formatter': 'verbose',
-            },
-            'file_json': {
-                'class': 'logging.handlers.RotatingFileHandler',
-                'filename': os.path.join(BASE_DIR, 'logs', 'app.log'),
-                'maxBytes': 1024*1024*5,  # 5MB
-                'backupCount': 5,
-                'formatter': 'json',
-            },
+        'file_format': {
+            'format': '{asctime} - {levelname} - {module} - {message}',
+            'style': '{',
         },
-        'root': {
-            'handlers': ['console_json'],
-            'level': config('LOG_LEVEL', default='INFO'),
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
         },
-        'loggers': {
-            'django': {
-                'handlers': ['console_json', 'file_json'],
-                'level': config('LOG_LEVEL', default='INFO'),
-                'propagate': False,
-            },
-            'products': {
-                'handlers': ['console_json', 'file_json'],
-                'level': config('LOG_LEVEL', default='INFO'),
-                'propagate': False,
-            },
-            'retail_api': {
-                'handlers': ['console_json', 'file_json'],
-                'level': config('LOG_LEVEL', default='INFO'),
-                'propagate': False,
-            },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(LOGS_DIR, 'activity.log'),
+            'formatter': 'file_format',
         },
-    }
-else:
-    # Fallback to simple logging
-    LOGGING = {
-        'version': 1,
-        'disable_existing_loggers': False,
-        'handlers': {
-            'console': {
-                'class': 'logging.StreamHandler',
-            },
+    },
+    'loggers': {
+        'products': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
         },
-        'root': {
-            'handlers': ['console'],
-            'level': config('LOG_LEVEL', default='INFO'),
-        },
-    }
+    },
+}
