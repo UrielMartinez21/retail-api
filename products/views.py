@@ -52,6 +52,47 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
 
 
 @csrf_exempt
+@require_http_methods(["GET", "POST", "OPTIONS"])
+def stores(request: HttpRequest) -> HttpResponse:
+    """List all stores or create a new store."""
+
+    try:
+        if request.method == "OPTIONS":
+            return build_response("success", 200)
+
+        elif request.method == "GET":
+            stores = Store.objects.only("id", "name", "address")
+
+            if not stores.exists():
+                return build_response("error", 404, message="No stores found.")
+
+            store_list = [
+                {"id": store.id, "name": store.name, "address": store.address}
+                for store in stores
+            ]
+
+            return build_response("success", 200, data={"stores": store_list})
+        elif request.method == "POST":
+            body = json.loads(request.body)
+            name = body.get("name")
+            address = body.get("address")
+
+            if not name or not address:
+                return build_response("error", 400, message="Name and address are required.")
+
+            store = Store.objects.create(name=name, address=address)
+
+            return build_response(
+                "success",
+                200,
+                message="Store created successfully.",
+                data={"store": {"id": store.id, "name": store.name, "address": store.address}}
+            )
+    except Exception as e:
+        return build_response("error", 500, message=str(e))
+
+
+@csrf_exempt
 @require_http_methods(["GET", "OPTIONS"])
 def store_inventory(request: HttpRequest, store_id: int) -> HttpResponse:
     """List inventory for a specific store."""
