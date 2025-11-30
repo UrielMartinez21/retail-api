@@ -493,3 +493,53 @@ def inventory_alerts(request: HttpRequest) -> HttpResponse:
     except Exception as e:
         response["message"] = f"Error interno del servidor: {str(e)}"
         return JsonResponse(response, status=500)
+    
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def movements(request: HttpRequest) -> HttpResponse:
+    response = {"status": "error", "message": "", "data": None}
+    try:
+        if request.method == "OPTIONS":
+            response["status"] = "success"
+
+        elif request.method == "GET":
+            movements = Movement.objects.select_related(
+                "product", "source_store", "target_store"
+            ).order_by("-timestamp")
+
+            movements_list = []
+            for movement in movements:
+                movements_list.append(
+                    {
+                        "id": movement.id,
+                        "product": {
+                            "id": movement.product.id,
+                            "name": movement.product.name,
+                            "sku": movement.product.sku,
+                        },
+                        "type": movement.type,
+                        "quantity": movement.quantity,
+                        "source_store": {
+                            "id": movement.source_store.id,
+                            "name": movement.source_store.name,
+                        }
+                        if movement.source_store
+                        else None,
+                        "target_store": {
+                            "id": movement.target_store.id,
+                            "name": movement.target_store.name,
+                        }
+                        if movement.target_store
+                        else None,
+                        "timestamp": movement.timestamp.isoformat(),
+                    }
+                )
+
+            response["status"] = "success"
+            response["data"] = {"movements": movements_list}
+
+        return JsonResponse(response, status=200)
+    except Exception as e:
+        response["message"] = str(e)
+        return JsonResponse(response, status=500)
