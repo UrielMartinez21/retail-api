@@ -1,5 +1,5 @@
 # Django imports
-from django.db import transaction
+from django.db import transaction, models
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -400,6 +400,96 @@ def transfer_inventory(request: HttpRequest) -> HttpResponse:
     except json.JSONDecodeError:
         response["message"] = "JSON inválido en el cuerpo de la solicitud."
         return JsonResponse(response, status=400)
+    except Exception as e:
+        response["message"] = f"Error interno del servidor: {str(e)}"
+        return JsonResponse(response, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def inventory_alerts(request: HttpRequest) -> HttpResponse:
+    """List products with low stock alerts.
+    
+    Returns products where inventory quantity is less than or equal to min_stock.
+    Supports filtering by store_id via query parameter.
+    
+    Query Parameters:
+        store_id (optional): Filter alerts for specific store
+    
+    Returns:
+        JsonResponse with list of low stock products
+    """
+    response = {"status": "error", "message": "", "data": None}
+    
+    try:
+        if request.method == "OPTIONS":
+            response["status"] = "success"
+            return JsonResponse(response, status=200)
+        
+        elif request.method == "GET":
+            # Get optional store filter
+            store_id = request.GET.get('store_id')
+            
+            # Build base query for low stock items
+            low_stock_query = Inventory.objects.filter(
+                quantity__lte=models.F('min_stock')
+            ).select_related('product', 'store')
+            
+            # Apply store filter if provided
+            if store_id:
+                try:
+                    store = Store.objects.get(id=store_id)
+                    low_stock_query = low_stock_query.filter(store=store)
+                except Store.DoesNotExist:
+                    response["message"] = "Store not found."
+                    return JsonResponse(response, status=404)
+            
+            # Get low stock items
+            low_stock_items = low_stock_query.order_by('product__name', 'store__name')
+            
+            # Build alerts list
+            alerts_list = []
+            for item in low_stock_items:
+                alert = {
+                    "inventory_id": item.id,
+                    "product": {
+                        "id": item.product.id,
+                        "name": item.product.name,
+                        "sku": item.product.sku,
+                        "category": item.product.get_category_display()
+                    },
+                    "store": {
+                        "id": item.store.id,
+                        "name": item.store.name,
+                        "address": item.store.address
+                    },
+                    "current_stock": item.quantity,
+                    "min_stock": item.min_stock,
+                    "deficit": item.min_stock - item.quantity,
+                    "alert_level": "critical" if item.quantity == 0 else "warning"
+                }
+                alerts_list.append(alert)
+            
+            # Group statistics
+            total_alerts = len(alerts_list)
+            critical_alerts = len([alert for alert in alerts_list if alert["alert_level"] == "critical"])
+            warning_alerts = total_alerts - critical_alerts
+            
+            response["status"] = "success"
+            response["data"] = {
+                "alerts": alerts_list,
+                "summary": {
+                    "total_alerts": total_alerts,
+                    "critical_alerts": critical_alerts,
+                    "warning_alerts": warning_alerts
+                },
+                "filter_applied": {
+                    "store_id": store_id if store_id else None
+                }
+            }
+            
+            return JsonResponse(response, status=200)
+    
     except Exception as e:
         response["message"] = f"Error interno del servidor: {str(e)}"
         return JsonResponse(response, status=500)
