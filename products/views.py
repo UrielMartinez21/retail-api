@@ -1,16 +1,18 @@
 # Django imports
-from django.db import transaction, models
+from django.db import models
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.http import require_http_methods
+from django.core.exceptions import ValidationError
 
 # Local imports
-from .models import Product, Store, Inventory, Movement
+from .models import Store, Inventory, Movement
 from .handles import (
     handle_get_products, handle_post_product,
-    handle_get_product, handle_put_product, handle_delete_product
+    handle_get_product, handle_put_product, handle_delete_product,
+    
 )
-from .helpers import build_response
+from .helpers import build_response, fetch_product_and_stores, perform_inventory_transfer, validate_request_body, validate_source_inventory
 
 # Standard library imports
 import json
@@ -81,7 +83,6 @@ def store_inventory(request: HttpRequest, store_id: int) -> HttpResponse:
 @require_http_methods(["POST", "OPTIONS"])
 def transfer_inventory(request: HttpRequest) -> HttpResponse:
     """Transfer products between stores with stock validation."""
-
     try:
         if request.method == "OPTIONS":
             return build_response("success", 200)
@@ -89,114 +90,30 @@ def transfer_inventory(request: HttpRequest) -> HttpResponse:
         elif request.method == "POST":
             body = json.loads(request.body)
 
-            # Validate required fields
-            required_fields = [
-                "product_id",
-                "source_store_id",
-                "target_store_id",
-                "quantity",
-            ]
-            for field in required_fields:
-                if field not in body:
-                    return build_response("error", 400, message=f"The field '{field}' is required.")
+            # Validate request body
+            validate_request_body(body)
 
-            # Validate quantity is positive
-            quantity = body["quantity"]
-            if not isinstance(quantity, int) or quantity <= 0:
-                return build_response("error", 400, message="The quantity must be a positive integer.")
+            # Fetch product and stores
+            product, source_store, target_store = fetch_product_and_stores(body)
 
-            # Validate stores are different
-            if body["source_store_id"] == body["target_store_id"]:
-                return build_response("error", 400, message="The origin and destination stores must be different.")
+            # Validate source inventory
+            source_inventory = validate_source_inventory(
+                product, source_store, body["quantity"]
+            )
 
-            # Get product
-            try:
-                product = Product.objects.get(id=body["product_id"])
-            except Product.DoesNotExist:
-                return build_response("error", 404, message="Product not found.")
+            # Perform transfer
+            response_data = perform_inventory_transfer(
+                product, source_store, target_store, body["quantity"], source_inventory
+            )
 
-            # Get stores
-            try:
-                source_store = Store.objects.get(id=body["source_store_id"])
-                target_store = Store.objects.get(id=body["target_store_id"])
-            except Store.DoesNotExist:
-                return build_response("error", 404, message="One or both stores could not be found.")
-
-            # Get source inventory
-            try:
-                source_inventory = Inventory.objects.get(
-                    product=product, store=source_store
-                )
-            except Inventory.DoesNotExist:
-                return build_response(
-                    "error",
-                    400,
-                    message=f"The product '{product.name}' is not available in the store '{source_store.name}'.",
-                )
-
-            # Validate sufficient stock
-            if source_inventory.quantity < quantity:
-                return build_response(
-                    "error",
-                    400,
-                    message=(
-                        f"Insufficient stock in store '{source_store.name}'. "
-                        f"Available: {source_inventory.quantity}, Required: {quantity}."
-                    ),
-                )
-
-            # Perform transfer using transaction for data integrity
-            with transaction.atomic():
-                # Update source inventory
-                source_inventory.quantity -= quantity
-                source_inventory.save()
-
-                # Get or create target inventory
-                target_inventory, created = Inventory.objects.get_or_create(
-                    product=product,
-                    store=target_store,
-                    defaults={"quantity": 0, "min_stock": 0},
-                )
-
-                # Update target inventory
-                target_inventory.quantity += quantity
-                target_inventory.save()
-
-                # Create movement record
-                movement = Movement.objects.create(
-                    product=product,
-                    source_store=source_store,
-                    target_store=target_store,
-                    quantity=quantity,
-                    type="TRANSFER",
-                )
-
-            # Build response
             return build_response(
-                "success",
-                200,
-                message="Transfer completed successfully.",
-                data={
-                    "transfer_id": movement.id,
-                    "product": {"id": product.id, "name": product.name, "sku": product.sku},
-                    "source_store": {
-                        "id": source_store.id,
-                        "name": source_store.name,
-                        "remaining_stock": source_inventory.quantity,
-                    },
-                    "target_store": {
-                        "id": target_store.id,
-                        "name": target_store.name,
-                        "new_stock": target_inventory.quantity,
-                        "inventory_created": created,
-                    },
-                    "quantity_transferred": quantity,
-                    "timestamp": movement.timestamp.isoformat(),
-                },
+                "success", 200, message="Transfer completed successfully.", data=response_data
             )
 
     except json.JSONDecodeError:
         return build_response("error", 400, message="Invalid JSON in request body.")
+    except ValidationError as e:
+        return build_response("error", 400, message=str(e))
     except Exception as e:
         return build_response("error", 500, message=str(e))
 
@@ -226,10 +143,10 @@ def inventory_alerts(request: HttpRequest) -> HttpResponse:
                     low_stock_query = low_stock_query.filter(store=store)
                 except Store.DoesNotExist:
                     return build_response("error", 404, message="Store not found.")
-            
+
             # Get low stock items
             low_stock_items = low_stock_query.order_by('product__name', 'store__name')
-            
+
             # Build alerts list
             alerts_list = []
             for item in low_stock_items:
@@ -252,12 +169,12 @@ def inventory_alerts(request: HttpRequest) -> HttpResponse:
                     "alert_level": "critical" if item.quantity == 0 else "warning"
                 }
                 alerts_list.append(alert)
-            
+
             # Group statistics
             total_alerts = len(alerts_list)
             critical_alerts = len([alert for alert in alerts_list if alert["alert_level"] == "critical"])
             warning_alerts = total_alerts - critical_alerts
-            
+
             return build_response(
                 "success",
                 200,
