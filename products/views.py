@@ -1,10 +1,11 @@
 # Django imports
+from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
 
 # Local imports
-from .models import Product, Store, Inventory
+from .models import Product, Store, Inventory, Movement
 from .helpers import get_query_params, build_filters, build_pagination_params
 
 # Standard library imports
@@ -25,7 +26,11 @@ def products(request: HttpRequest) -> HttpResponse:
 
             # Build filters and apply them
             filters = build_filters(params)
-            filtered_products = Product.objects.filter(filters).prefetch_related('inventory_items').distinct()
+            filtered_products = (
+                Product.objects.filter(filters)
+                .prefetch_related("inventory_items")
+                .distinct()
+            )
 
             # Build pagination
             paginator, products_page = build_pagination_params(
@@ -35,16 +40,20 @@ def products(request: HttpRequest) -> HttpResponse:
             # Build the products list
             products_list = []
             for product in products_page:
-                total_stock = sum(item.quantity for item in product.inventory_items.all())
-                products_list.append({
-                    "id": product.id,
-                    "name": product.name,
-                    "description": product.description,
-                    "category": product.get_category_display(),
-                    "price": str(product.price),
-                    "sku": product.sku,
-                    "total_stock": total_stock,
-                })
+                total_stock = sum(
+                    item.quantity for item in product.inventory_items.all()
+                )
+                products_list.append(
+                    {
+                        "id": product.id,
+                        "name": product.name,
+                        "description": product.description,
+                        "category": product.get_category_display(),
+                        "price": str(product.price),
+                        "sku": product.sku,
+                        "total_stock": total_stock,
+                    }
+                )
 
             # Build response
             response["status"] = "success"
@@ -132,7 +141,7 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
             response["status"] = "success"
 
         elif request.method == "GET":
-            product = Product.objects.prefetch_related('inventory_items').get(id=product_id)
+            product = Product.objects.prefetch_related("inventory_items").get(id=product_id)
             total_stock = sum(item.quantity for item in product.inventory_items.all())
             product_data = {
                 "id": product.id,
@@ -148,7 +157,7 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
 
         elif request.method == "PUT":
             body = json.loads(request.body)
-            product = Product.objects.prefetch_related('inventory_items').get(id=product_id)
+            product = Product.objects.prefetch_related("inventory_items").get(id=product_id)
 
             # Update product fields if provided
             product.name = body.get("name", product.name)
@@ -172,9 +181,9 @@ def product_detail(request: HttpRequest, product_id: int) -> HttpResponse:
                     product=product,
                     store=store,
                     defaults={
-                        'quantity': body.get("quantity", 0),
-                        'min_stock': body.get("min_stock", 0),
-                    }
+                        "quantity": body.get("quantity", 0),
+                        "min_stock": body.get("min_stock", 0),
+                    },
                 )
 
                 # If inventory exists and we have new values, update them
@@ -235,23 +244,162 @@ def store_inventory(request: HttpRequest, store_id: int) -> HttpResponse:
             response["status"] = "success"
 
         elif request.method == "GET":
-            inventories = Inventory.objects.filter(store__id=store_id).select_related('product', 'store')
+            inventories = Inventory.objects.filter(store__id=store_id).select_related("product", "store")
             inventory_list = []
             for inventory in inventories:
-                inventory_list.append({
-                    "id": inventory.id,
-                    "product_id": inventory.product.id,
-                    "store_id": inventory.store.id,
-                    "quantity": inventory.quantity,
-                    "min_stock": inventory.min_stock,
-                })
+                inventory_list.append(
+                    {
+                        "id": inventory.id,
+                        "product_id": inventory.product.id,
+                        "store_id": inventory.store.id,
+                        "quantity": inventory.quantity,
+                        "min_stock": inventory.min_stock,
+                    }
+                )
 
             response["status"] = "success"
-            response["data"] = {
-                "inventory": inventory_list
-            }
+            response["data"] = {"inventory": inventory_list}
 
         return JsonResponse(response, status=200)
     except Exception as e:
         response["message"] = str(e)
+        return JsonResponse(response, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def transfer_inventory(request: HttpRequest) -> HttpResponse:
+    """Transfer products between stores with stock validation.
+
+    Required fields:
+        - product_id: ID of the product to transfer
+        - source_store_id: ID of the source store
+        - target_store_id: ID of the target store
+        - quantity: Amount to transfer
+
+    Returns:
+        JsonResponse with transfer details and updated inventory
+    """
+    response = {"status": "error", "message": "", "data": None}
+
+    try:
+        if request.method == "OPTIONS":
+            response["status"] = "success"
+            return JsonResponse(response, status=200)
+
+        elif request.method == "POST":
+            body = json.loads(request.body)
+
+            # Validate required fields
+            required_fields = [
+                "product_id",
+                "source_store_id",
+                "target_store_id",
+                "quantity",
+            ]
+            for field in required_fields:
+                if field not in body:
+                    response["message"] = f"The field'{field}' is required."
+                    return JsonResponse(response, status=400)
+
+            # Validate quantity is positive
+            quantity = body["quantity"]
+            if not isinstance(quantity, int) or quantity <= 0:
+                response["message"] = "The quantity must be a positive integer."
+                return JsonResponse(response, status=400)
+
+            # Validate stores are different
+            if body["source_store_id"] == body["target_store_id"]:
+                response["message"] = (
+                    "The origin and destination stores must be different."
+                )
+                return JsonResponse(response, status=400)
+
+            # Get product
+            try:
+                product = Product.objects.get(id=body["product_id"])
+            except Product.DoesNotExist:
+                response["message"] = "Product not found."
+                return JsonResponse(response, status=404)
+
+            # Get stores
+            try:
+                source_store = Store.objects.get(id=body["source_store_id"])
+                target_store = Store.objects.get(id=body["target_store_id"])
+            except Store.DoesNotExist:
+                response["message"] = "One or both stores could not be found."
+                return JsonResponse(response, status=404)
+
+            # Get source inventory
+            try:
+                source_inventory = Inventory.objects.get(
+                    product=product, store=source_store
+                )
+            except Inventory.DoesNotExist:
+                response["message"] = (
+                    f"The product is out of stock '{product.name}' in the store '{source_store.name}'."
+                )
+                return JsonResponse(response, status=400)
+
+            # Validate sufficient stock
+            if source_inventory.quantity < quantity:
+                response["message"] = (
+                    f"Insufficient stock. Available: {source_inventory.quantity}, Required: {quantity}."
+                )
+                return JsonResponse(response, status=400)
+
+            # Perform transfer using transaction for data integrity
+            with transaction.atomic():
+                # Update source inventory
+                source_inventory.quantity -= quantity
+                source_inventory.save()
+
+                # Get or create target inventory
+                target_inventory, created = Inventory.objects.get_or_create(
+                    product=product,
+                    store=target_store,
+                    defaults={"quantity": 0, "min_stock": 0},
+                )
+
+                # Update target inventory
+                target_inventory.quantity += quantity
+                target_inventory.save()
+
+                # Create movement record
+                movement = Movement.objects.create(
+                    product=product,
+                    source_store=source_store,
+                    target_store=target_store,
+                    quantity=quantity,
+                    type="TRANSFER",
+                )
+
+            # Build response
+            response["status"] = "success"
+            response["message"] = "Transfer completed successfully."
+            response["data"] = {
+                "transfer_id": movement.id,
+                "product": {"id": product.id, "name": product.name, "sku": product.sku},
+                "source_store": {
+                    "id": source_store.id,
+                    "name": source_store.name,
+                    "remaining_stock": source_inventory.quantity,
+                },
+                "target_store": {
+                    "id": target_store.id,
+                    "name": target_store.name,
+                    "new_stock": target_inventory.quantity,
+                    "inventory_created": created,
+                },
+                "quantity_transferred": quantity,
+                "timestamp": movement.timestamp.isoformat(),
+            }
+
+            return JsonResponse(response, status=200)
+
+    except json.JSONDecodeError:
+        response["message"] = "JSON inválido en el cuerpo de la solicitud."
+        return JsonResponse(response, status=400)
+    except Exception as e:
+        response["message"] = f"Error interno del servidor: {str(e)}"
         return JsonResponse(response, status=500)
