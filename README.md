@@ -16,6 +16,7 @@ API RESTful para gestión de inventario de retail desarrollada con Django. Permi
 - [🏗️ Decisiones Técnicas](#️-decisiones-técnicas)
 - [📊 Diagrama de Arquitectura](#-diagrama-de-arquitectura)
 - [🧪 Testing](#-testing)
+- [💾 Sistema de Backups](#-sistema-de-backups)
 - [📈 Monitoreo y Performance](#-monitoreo-y-performance)
 
 ---
@@ -794,6 +795,185 @@ python manage.py load_test --host http://production-url.com --rps 300
 - **< 5 segundos** tiempo de respuesta máximo
 - **100% tasa de éxito** en condiciones normales
 - **Transferencias atómicas** verificadas
+
+---
+
+---
+
+## 💾 Sistema de Backups
+
+### 🔄 **Backups Automáticos Integrados**
+
+La aplicación incluye un sistema completo de backups para PostgreSQL con rotación automática y validación de integridad.
+
+#### **🚀 Ejecución Rápida**
+
+```bash
+# Backup manual inmediato
+python manage.py backup_database --type manual
+
+# Listar backups disponibles
+python manage.py backup_database --list
+
+# Restaurar desde backup específico
+python manage.py backup_database --restore backup_file.sql.gz
+
+# Generar reporte de estado
+python manage.py backup_database --report
+```
+
+#### **⚙️ Características Principales**
+
+- **🕒 Backups Programados**: Diarios, semanales y mensuales
+- **🗜️ Compresión Automática**: Archivos .gz para ahorrar espacio
+- **🔍 Validación de Integridad**: Checksums SHA256 automáticos
+- **📧 Notificaciones**: Email y webhooks para alertas
+- **🧹 Limpieza Automática**: Retención configurable por tipo
+- **📊 Monitoreo**: Métricas y reportes de salud
+
+#### **📋 Política de Retención**
+
+| Tipo | Frecuencia | Retención | Descripción |
+|------|------------|-----------|-------------|
+| **Diario** | Cada día 2:00 AM | 7 días | Backups de rutina |
+| **Semanal** | Domingos 1:00 AM | 4 semanas | Backups semanales |
+| **Mensual** | Primer día del mes | 6 meses | Backups a largo plazo |
+
+### 🐳 **Configuración con Docker**
+
+```bash
+# Backup manual con Docker
+docker-compose --profile backup up backup
+
+# Programar backups automáticos
+docker-compose --profile scheduler up -d backup_scheduler
+```
+
+### 💻 **Scripts Nativos**
+
+#### **Windows**
+```powershell
+# Ejecutar backup directo
+scripts\backup_database.bat auto
+
+# Programar en Task Scheduler
+schtasks /create /tn "Retail API Backup" /tr "C:\path\to\scripts\backup_database.bat" /sc daily /st 02:00
+```
+
+#### **Linux/Mac**
+```bash
+# Hacer ejecutable y correr
+chmod +x scripts/backup_database.sh
+./scripts/backup_database.sh auto
+
+# Agregar a crontab
+echo "0 2 * * * /path/to/scripts/backup_database.sh auto" | crontab -
+```
+
+### 🔧 **Configuración de Notificaciones**
+
+Agregar al archivo `.env`:
+
+```bash
+# Email notifications
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+BACKUP_EMAIL_TO=admin@yourcompany.com
+BACKUP_EMAIL_FROM=backup@yourcompany.com
+
+# Webhook notifications (Slack, Discord, etc.)
+BACKUP_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+```
+
+### 📊 **Monitoreo y Salud**
+
+```bash
+# Estado del sistema de backups
+python manage.py backup_database --report
+
+# Ejemplo de output:
+📋 REPORTE DE BACKUPS
+==================================================
+📊 Total de backups: 15
+💾 Espacio utilizado: 2.3 GB
+
+🔹 DAILY:
+   Cantidad: 7
+   Tamaño: 850.2 MB
+   Último backup: 2025-11-30 02:00
+
+🔹 WEEKLY:
+   Cantidad: 4
+   Tamaño: 950.5 MB
+   Último backup: 2025-11-29 01:00
+
+🔹 MONTHLY:
+   Cantidad: 4
+   Tamaño: 1.1 GB
+   Último backup: 2025-11-01 01:00
+```
+
+### 🛡️ **Validación y Recuperación**
+
+#### **Validación de Integridad**
+```python
+# El sistema automáticamente:
+# 1. Calcula checksums SHA256 para cada backup
+# 2. Valida integridad al restaurar
+# 3. Detecta archivos corruptos
+# 4. Genera alertas si hay problemas
+```
+
+#### **Proceso de Restauración**
+```bash
+# 1. Listar backups disponibles
+python manage.py backup_database --list
+
+# 2. Restaurar específico (requiere confirmación)
+python manage.py backup_database --restore retail_api_db_daily_20251130.sql.gz
+
+# ⚠️ ATENCIÓN: Esto reemplazará todos los datos actuales.
+# ¿Estás seguro de restaurar desde backup.sql.gz? (escriba 'SI' para confirmar):
+```
+
+### 📁 **Estructura de Directorios**
+
+```
+backups/
+├── daily/              # Backups diarios (7 días)
+│   ├── retail_api_db_daily_20251130_020000.sql.gz
+│   └── ...
+├── weekly/             # Backups semanales (4 semanas)
+│   ├── retail_api_db_weekly_20251129_010000.sql.gz
+│   └── ...
+├── monthly/            # Backups mensuales (6 meses)
+│   ├── retail_api_db_monthly_20251101_010000.sql.gz
+│   └── ...
+├── temp/               # Archivos temporales
+├── checksums.json     # Checksums de integridad
+├── backup.log         # Log de operaciones
+└── backup_report_*.txt # Reportes generados
+```
+
+### 🚨 **Alertas y Notificaciones**
+
+El sistema envía notificaciones automáticas para:
+
+- ✅ **Backup Exitoso**: Confirmación con detalles del archivo
+- ❌ **Backup Fallido**: Alerta inmediata con detalles del error
+- ⚠️ **Backup Antiguo**: Si no hay backups recientes (>25 horas)
+- 🔍 **Validación Fallida**: Archivos corruptos detectados
+- 💾 **Espacio Insuficiente**: Uso de disco alto
+
+### 📈 **Mejores Prácticas**
+
+1. **🔄 Automatización**: Usar cron o Task Scheduler para backups regulares
+2. **📍 Ubicación Externa**: Considerar almacenamiento en la nube (S3, GCS)
+3. **🧪 Pruebas de Restauración**: Validar backups periódicamente
+4. **📊 Monitoreo**: Revisar reportes semanalmente
+5. **🔐 Seguridad**: Encriptar backups sensibles en producción
 
 ---
 

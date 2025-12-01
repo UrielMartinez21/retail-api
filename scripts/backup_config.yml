@@ -1,0 +1,198 @@
+# Configuración automática de backups para Task Scheduler (Windows) y Cron (Linux)
+# Este archivo se puede usar para programar backups automáticos
+
+# =============================================================================
+# CONFIGURACIÓN PARA WINDOWS TASK SCHEDULER
+# =============================================================================
+# Ejecuta este comando en PowerShell como Administrador para programar backups diarios:
+#
+# schtasks /create /tn "Retail API Daily Backup" /tr "C:\path\to\retail_api\scripts\backup_database.bat auto" /sc daily /st 02:00 /ru SYSTEM
+#
+# Para backups semanales (domingos a las 01:00):
+# schtasks /create /tn "Retail API Weekly Backup" /tr "C:\path\to\retail_api\scripts\backup_database.bat auto" /sc weekly /d SUN /st 01:00 /ru SYSTEM
+
+# =============================================================================
+# CONFIGURACIÓN PARA CRON (LINUX/MAC)
+# =============================================================================
+# Agrega estas líneas al crontab (crontab -e) para backups automáticos:
+
+# Backup diario a las 2:00 AM
+# 0 2 * * * /path/to/retail_api/scripts/backup_database.sh auto >> /path/to/retail_api/backups/cron.log 2>&1
+
+# Backup semanal (domingo a las 1:00 AM)
+# 0 1 * * 0 /path/to/retail_api/scripts/backup_database.sh auto >> /path/to/retail_api/backups/cron.log 2>&1
+
+# Limpieza mensual (primer día del mes a las 3:00 AM)
+# 0 3 1 * * find /path/to/retail_api/backups -type f -name "*.sql.gz" -mtime +90 -delete
+
+# =============================================================================
+# DOCKER COMPOSE - CONFIGURACIÓN DE BACKUP AUTOMÁTICO
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # Servicio existente de base de datos
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}  
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Servicio de backup automático
+  backup:
+    build: .
+    restart: "no"  # Solo se ejecuta cuando se invoca
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=db
+      - DB_PORT=5432
+    volumes:
+      - ./backups:/app/backups
+      - ./scripts:/app/scripts
+    command: python manage.py backup_database --type auto
+    profiles:
+      - backup  # Solo se ejecuta con: docker-compose --profile backup up backup
+
+  # Servicio para programar backups con cron
+  backup_scheduler:
+    image: alpine:latest
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=db
+      - DB_PORT=5432
+    volumes:
+      - ./backups:/backups
+      - ./scripts:/scripts
+    command: |
+      sh -c '
+        # Instalar postgresql-client y cronie
+        apk add --no-cache postgresql-client dcron
+        
+        # Crear crontab para backups automáticos
+        echo "0 2 * * * cd /app && /scripts/backup_database.sh auto" | crontab -
+        echo "0 1 * * 0 cd /app && /scripts/backup_database.sh auto" | crontab -
+        
+        # Ejecutar cron en primer plano
+        crond -f
+      '
+    profiles:
+      - scheduler
+
+volumes:
+  postgres_data:
+
+# =============================================================================
+# CONFIGURACIÓN DE NOTIFICACIONES
+# =============================================================================
+
+# Variables de entorno para webhooks/notificaciones (agregar a .env):
+# BACKUP_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+# BACKUP_EMAIL_TO=admin@yourcompany.com
+# BACKUP_EMAIL_FROM=backup@yourcompany.com
+# SMTP_SERVER=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-email@gmail.com
+# SMTP_PASSWORD=your-app-password
+
+# =============================================================================
+# COMANDOS ÚTILES
+# =============================================================================
+
+# Ejecutar backup manual desde Django:
+# python manage.py backup_database --type manual
+
+# Listar todos los backups disponibles:
+# python manage.py backup_database --list
+
+# Restaurar desde un backup específico:
+# python manage.py backup_database --restore retail_api_db_daily_20251130_143000.sql.gz
+
+# Limpiar backups antiguos:
+# python manage.py backup_database --cleanup
+
+# Generar reporte de backups:
+# python manage.py backup_database --report
+
+# Ejecutar backup con Docker Compose:
+# docker-compose --profile backup up backup
+
+# Ejecutar scheduler de backups:
+# docker-compose --profile scheduler up -d backup_scheduler
+
+# =============================================================================
+# MONITOREO DE BACKUPS
+# =============================================================================
+
+# Script para verificar que los backups se ejecuten correctamente
+# Puede agregarse a un servicio de monitoreo como Nagios, Zabbix, etc.
+
+#!/bin/bash
+# check_backup.sh - Script de monitoreo de backups
+
+BACKUP_DIR="/path/to/retail_api/backups"
+ALERT_EMAIL="admin@yourcompany.com"
+
+# Verificar que existe un backup reciente (últimas 25 horas)
+RECENT_BACKUP=$(find $BACKUP_DIR/daily -name "*.sql*" -mtime -1 | wc -l)
+
+if [ "$RECENT_BACKUP" -eq 0 ]; then
+    echo "CRITICAL: No se encontraron backups recientes"
+    # Enviar alerta por email
+    echo "No se encontraron backups en las últimas 24 horas" | mail -s "ALERT: Backup Failed" $ALERT_EMAIL
+    exit 2
+else
+    echo "OK: Backup reciente encontrado"
+    exit 0
+fi
+
+# =============================================================================
+# CONFIGURACIÓN DE RETENCIÓN AVANZADA
+# =============================================================================
+
+# Política de retención recomendada:
+# - Diarios: 7 días (1 semana)
+# - Semanales: 4 semanas (1 mes)
+# - Mensuales: 12 meses (1 año)
+# - Anuales: 5 años (para cumplimiento legal)
+
+# Script de retención avanzada (agregar a cron mensualmente):
+#!/bin/bash
+# advanced_retention.sh
+
+BACKUP_DIR="/path/to/retail_api/backups"
+
+# Crear backup anual el primer día del año
+if [ "$(date +%m%d)" = "0101" ]; then
+    # Copiar el último backup mensual como anual
+    LATEST_MONTHLY=$(find $BACKUP_DIR/monthly -name "*.sql*" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+    if [ ! -z "$LATEST_MONTHLY" ]; then
+        mkdir -p $BACKUP_DIR/yearly
+        cp "$LATEST_MONTHLY" "$BACKUP_DIR/yearly/"
+    fi
+fi
+
+# Limpiar backups anuales (mantener solo 5)
+find $BACKUP_DIR/yearly -name "*.sql*" -type f -printf '%T@ %p\n' | sort -n | head -n -5 | cut -d' ' -f2- | xargs rm -f
